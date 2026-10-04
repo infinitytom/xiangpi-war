@@ -39,7 +39,7 @@ export const FLICK = {
   grabMargin: 0.35, // 按在橡皮轮廓外这么远以内也算按住
   releaseWindowMs: 110, // 出手速度取松手前这段时间内的峰值
   maxDrag: 2.4, // 手指甩出这么远就自动出手，不必等抬手
-  speedGain: 0.42,
+  speedGain: 0.19, // 玩家实测：旧值 0.42 配灵敏度 0.45 手感最好，折算后作为默认（灵敏度 1）
   speedExp: 1.05,
   minFingerSpeed: 0.4,
 };

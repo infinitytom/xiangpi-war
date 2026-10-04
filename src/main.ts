@@ -39,6 +39,11 @@ const settings = {
 };
 try {
   Object.assign(settings, JSON.parse(localStorage.getItem('xp_settings2') || '{}'));
+  // 力度基准改过：旧版存的灵敏度对不上新基准，统一回到默认
+  if ((settings as any).sensVer !== 2) {
+    settings.sensitivity = 1;
+    (settings as any).sensVer = 2;
+  }
 } catch {}
 function saveSettings() {
   try {
@@ -635,7 +640,7 @@ function showRoundResult() {
 function settingsScreen(back: 'title' | 'pause') {
   showOverlay(`
     <h2>设置</h2>
-    <label class="row">甩动灵敏度 <input type="range" id="s-sens" min="0.5" max="1.8" step="0.05" value="${settings.sensitivity}"><span id="s-sens-v">${settings.sensitivity.toFixed(2)}</span></label>
+    <label class="row">甩动灵敏度 <input type="range" id="s-sens" min="0.4" max="2" step="0.05" value="${settings.sensitivity}"><span id="s-sens-v">${settings.sensitivity.toFixed(2)}</span></label>
     <label class="row"><input type="checkbox" id="s-timer" ${settings.timer ? 'checked' : ''}> 本地对战每次限时 ${RULES.turnSeconds} 秒</label>
     <label class="row"><input type="checkbox" id="s-f2f" ${settings.faceToFace ? 'checked' : ''}> 面对面模式（两人本地对战，平板平放）</label>
     <label class="row"><input type="checkbox" id="s-sound" ${settings.sound ? 'checked' : ''}> 音效</label>
