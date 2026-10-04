@@ -16,7 +16,7 @@ export const PHYS = {
 
 export const SKILL_NUM = {
   chargeBoost: 1.7,
-  rootGrip: 3,
+  rootGrip: 2,
   braceMass: 1.5,
 };
 
@@ -31,8 +31,8 @@ export const RULES = {
   openingPower: 0.6, // 每局第一弹的力度上限（防止开局一击必杀）
   secondPlayerBonus: 0,
   escalationAfter: 2, // 连续几整轮没人落桌后开始加力
-  escalationStep: 0.12, // 之后每整轮力度上限 +12%
-  escalationMax: 1.6, // 非先手的人开局多 1 点能量，抵消先手优势
+  escalationStep: 0.08, // 之后每整轮力度上限 +8%
+  escalationMax: 1.5, // 非先手的人开局多 1 点能量，抵消先手优势
 };
 
 export const FLICK = {
@@ -69,7 +69,7 @@ export const SKILLS: Record<SkillId, SkillDef> = {
   brace: { id: 'brace', name: '定身', cost: 1, kind: 'arm', desc: '这次弹完后变重 50%，持续到下次轮到你' },
   charge: { id: 'charge', name: '蓄势', cost: 2, kind: 'instant', desc: '这次不弹，下次的最大力度 +70%' },
   spring: { id: 'spring', name: '弹簧', cost: 2, kind: 'arm', desc: '这次第一下碰撞变成超弹，自己也会被弹开' },
-  root: { id: 'root', name: '扎根', cost: 2, kind: 'arm', desc: '这次停下后抓地 ×3，持续到下次轮到你' },
+  root: { id: 'root', name: '扎根', cost: 2, kind: 'arm', desc: '这次停下后抓地 ×2，持续到下次轮到你' },
   curve: { id: 'curve', name: '旋射', cost: 1, kind: 'arm', desc: '这次带强旋转，弹偏一点会走弧线' },
   sweep: { id: 'sweep', name: '横扫', cost: 2, kind: 'arm', desc: '这次停下后原地转一圈，扫开身边的人' },
   stick: { id: 'stick', name: '黏附', cost: 3, kind: 'arm', desc: '这次第一下碰撞黏住对方 0.8 秒，并多推一把' },
@@ -92,12 +92,12 @@ export interface CharacterDef {
 export const CHARACTERS: CharacterDef[] = [
   { id: 'xiaobai', name: '小白块', origin: '4B 绘图橡皮', type: '均衡', stats: { mass: 3, size: 3, grip: 3, bounce: 3, power: 3.25 }, shape: 'box', aspect: 1.6, skin: 'white', skill: 'brace' },
   { id: 'elephant', name: '大象', origin: '大块美术橡皮', type: '力量', stats: { mass: 4, size: 4, grip: 3, bounce: 1, power: 1 }, shape: 'box', aspect: 1.45, skin: 'elephant', skill: 'charge' },
-  { id: 'jelly', name: '果冻', origin: '香味果冻橡皮', type: '灵巧', stats: { mass: 1, size: 2, grip: 3, bounce: 4.75, power: 4 }, shape: 'box', aspect: 1.3, skin: 'jelly', skill: 'spring' },
-  { id: 'sand', name: '砂擦', origin: '双色砂橡皮', type: '防守', stats: { mass: 3, size: 3, grip: 5, bounce: 1, power: 3.5 }, shape: 'box', aspect: 1.9, skin: 'sand', skill: 'root' },
-  { id: 'bear', name: '小熊头', origin: '卡通造型橡皮', type: '灵巧', stats: { mass: 3, size: 2, grip: 3, bounce: 3, power: 3 }, shape: 'ball', aspect: 1, skin: 'bear', skill: 'curve' },
-  { id: 'pen', name: '笔形擦', origin: '长条铅笔头橡皮', type: '力量', stats: { mass: 3, size: 3.75, grip: 4, bounce: 2.5, power: 3 }, shape: 'box', aspect: 3.6, skin: 'pen', skill: 'sweep', passive: '长条形，被撞到一端时会转动卸力' },
-  { id: 'putty', name: '橡皮泥', origin: '可塑橡皮', type: '防守', stats: { mass: 2, size: 3, grip: 4, bounce: 1, power: 4 }, shape: 'ball', aspect: 1, skin: 'putty', skill: 'stick' },
-  { id: 'crumb', name: '橡皮屑', origin: '用剩的小块橡皮', type: '灵巧', stats: { mass: 2, size: 1, grip: 3, bounce: 2, power: 4.75 }, shape: 'box', aspect: 1.3, skin: 'crumb', skill: 'brake' },
+  { id: 'jelly', name: '果冻', origin: '香味果冻橡皮', type: '灵巧', stats: { mass: 1, size: 2, grip: 3, bounce: 4.25, power: 4 }, shape: 'box', aspect: 1.3, skin: 'jelly', skill: 'spring' },
+  { id: 'sand', name: '砂擦', origin: '双色砂橡皮', type: '防守', stats: { mass: 3, size: 3, grip: 3.75, bounce: 1, power: 3 }, shape: 'box', aspect: 1.9, skin: 'sand', skill: 'root' },
+  { id: 'bear', name: '小熊头', origin: '卡通造型橡皮', type: '灵巧', stats: { mass: 3, size: 2, grip: 3, bounce: 3, power: 3.25 }, shape: 'ball', aspect: 1, skin: 'bear', skill: 'curve' },
+  { id: 'pen', name: '笔形擦', origin: '长条铅笔头橡皮', type: '力量', stats: { mass: 3, size: 4, grip: 4.25, bounce: 2.5, power: 3 }, shape: 'box', aspect: 3.6, skin: 'pen', skill: 'sweep', passive: '长条形，被撞到一端时会转动卸力' },
+  { id: 'putty', name: '橡皮泥', origin: '可塑橡皮', type: '防守', stats: { mass: 2, size: 3, grip: 4, bounce: 1, power: 3.75 }, shape: 'ball', aspect: 1, skin: 'putty', skill: 'stick' },
+  { id: 'crumb', name: '橡皮屑', origin: '用剩的小块橡皮', type: '灵巧', stats: { mass: 2, size: 1, grip: 3, bounce: 2, power: 4.25 }, shape: 'box', aspect: 1.3, skin: 'crumb', skill: 'brake' },
 ];
 
 /** 物理用的具体参数 */

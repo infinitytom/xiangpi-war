@@ -239,26 +239,42 @@ function setupInput(el: HTMLElement) {
 
 // ---------------- 主循环 ----------------
 let last = performance.now();
+let lastLogic = performance.now();
+
+/** 游戏逻辑一步。前台由动画帧驱动；切到后台时由定时器驱动（动画帧会被浏览器暂停） */
+function logic(t: number) {
+  const hidden = document.visibilityState === 'hidden';
+  const dt = Math.min(hidden ? 1.5 : 0.1, (t - lastLogic) / 1000);
+  lastLogic = t;
+  const m = match;
+  if (!m || paused || dt <= 0) return dt;
+  const before = Math.ceil(m.turnLeft);
+  if (t >= freezeUntil || hidden) m.tick(dt);
+  if (m.phase === 'aim' && m.timer && Math.ceil(m.turnLeft) !== before && m.turnLeft <= 5 && m.turnLeft > 0 && controlOf(m.turn) === 'me') sfxTick();
+  runAI();
+  if (m.phase === 'resolve' && controlOf(m.actorSeat) === 'ai' && shouldAutoBrake(m.sim, m.actorSeat)) {
+    if (m.brake(m.actorSeat)) sendAction({ kind: 'brake', seat: m.actorSeat });
+  }
+  return dt;
+}
+setInterval(() => {
+  const t = performance.now();
+  if (t - lastLogic > 200) logic(t);
+}, 250);
+
 function frame(t: number) {
   const dt = Math.min(0.1, (t - last) / 1000);
   last = t;
+  logic(t);
   const m = match;
   if (m && !paused) {
-    const before = Math.ceil(m.turnLeft);
-    if (t >= freezeUntil) m.tick(dt);
     sfxSlide(m.sim.erasers.reduce((a, _e, i) => a + m.sim.speedOf(i), 0) / 10);
-    if (m.phase === 'aim' && m.timer && Math.ceil(m.turnLeft) !== before && m.turnLeft <= 5 && m.turnLeft > 0 && controlOf(m.turn) === 'me') sfxTick();
-    runAI();
-    if (m.phase === 'resolve' && controlOf(m.actorSeat) === 'ai' && shouldAutoBrake(m.sim, m.actorSeat)) {
-      if (m.brake(m.actorSeat)) sendAction({ kind: 'brake', seat: m.actorSeat });
-    }
     m.sim.erasers.forEach((e, i) => {
       if (e.alive) scene.sync(i, m.sim.snapshot(i));
       scene.setEffects(i, e.fx);
     });
     updateTimer();
-  }
-  if (!m) sfxSlide(0);
+  } else sfxSlide(0);
   scene.showRing(m && m.phase === 'aim' && controlOf(m.turn) === 'me' && !paused ? m.turn : -1);
   scene.update(dt, t / 1000);
   requestAnimationFrame(frame);
@@ -763,6 +779,9 @@ function onResize() {
 
 // ---------------- 启动 ----------------
 async function boot() {
+  // CDN 与回退地址可能都加载了这份脚本，只启动一次
+  if ((window as any).__xpBooted) return;
+  (window as any).__xpBooted = true;
   scene = new GameScene($('stage'));
   await initPhysics();
   setupInput(scene.renderer.domElement);

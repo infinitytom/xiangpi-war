@@ -147,7 +147,7 @@ export class Match {
     return from;
   }
 
-  /** 力度递增：每整轮没人落桌，前两轮之后力度上限 +12%，最多 +60% */
+  /** 力度递增：连续多轮没人落桌时逐步提高力度上限（数值见 RULES） */
   get powerMul() {
     const alive = this.sim ? this.sim.erasers.filter((e) => e.alive).length : this.n;
     const rounds = Math.floor(this.quiet / Math.max(1, alive));
