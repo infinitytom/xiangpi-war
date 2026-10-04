@@ -128,7 +128,7 @@ export class OnlineRoom {
   private hbCount = 0;
   private watch() {
     if (!this.joinedOk || !this.lobby.host) return;
-    if (this.isHost && ++this.hbCount % 3 === 0) this.t.send({ t: 'hosthb', ver: this.lobby.ver });
+    if (this.isHost && ++this.hbCount % 3 === 0) this.t.send({ t: 'hosthb', ver: this.lobby.ver, turnNo: this.match?.turnNo ?? 0 });
     if (this.isOnline(this.lobby.host)) return;
     const next = this.successor();
     if (!next) return;
@@ -273,20 +273,32 @@ export class OnlineRoom {
         return;
       }
       case 'hosthb': {
-        // 另一个人也在当房主：座位靠前的留下，自己退位并向他要完整状态
-        if (m.from === this.lobby.host) return;
-        if (this.seatIndexOf(m.from) < this.seatIndexOf(this.lobby.host) || !this.isOnline(this.lobby.host)) {
-          const wasHost = this.isHost;
-          this.lobby.host = m.from;
-          if (wasHost) {
-            if (this.match) this.match.authority = 'client';
-            this.ev.toast('网络恢复了，以原房主的对局为准');
-            this.t.send({ t: 'hello', name: this.me.name, charId: this.me.charId });
-          }
-          this.ev.lobby(this.lobby);
+        // 两个人都以为自己是房主：对局进度更新的留下（进度相同则座位靠前的留下），另一个退位并要完整状态
+        if (m.from === this.lobby.host && !this.isHost) return;
+        const mine = this.match?.turnNo ?? 0;
+        const theirsWins = !this.isHost || m.turnNo > mine || (m.turnNo === mine && this.seatIndexOf(m.from) < this.seatIndexOf(this.selfId));
+        if (!theirsWins) return;
+        const wasHost = this.isHost;
+        this.lobby.host = m.from;
+        if (wasHost) {
+          if (this.match) this.match.authority = 'client';
+          this.ev.toast('以另一位房主的对局为准');
+          this.resync();
         }
+        this.ev.lobby(this.lobby);
         return;
       }
+      case 'handoff':
+        // 原房主切到后台，把房主交给指定的人
+        if (m.from !== this.lobby.host) return;
+        this.lobby.host = m.to;
+        if (m.to === this.selfId) {
+          this.ev.toast('房主暂时离开，现在由你当房主');
+          this.match?.promoteToHost();
+          this.broadcastLobby();
+        }
+        this.ev.lobby(this.lobby);
+        return;
       case 'full':
         if (m.to === this.selfId && !this.joinedOk) {
           clearInterval(this.helloTimer);
@@ -371,6 +383,26 @@ export class OnlineRoom {
       if (this.lobby.seats.length !== n) this.broadcastLobby();
     }
     this.ev.lobby(this.lobby);
+  }
+
+  /** 页面切到后台/回到前台。后台的页面会被浏览器暂停，房主必须先交出房主 */
+  onVisibility(hidden: boolean) {
+    if (!this.lobby.started) return;
+    if (hidden) {
+      if (!this.isHost) return;
+      const next = this.successor();
+      if (!next) return;
+      this.t.send({ t: 'handoff', to: next });
+      this.lobby.host = next;
+      if (this.match) this.match.authority = 'client';
+    } else if (!this.isHost) {
+      this.resync();
+    }
+  }
+
+  /** 向房主要一份最新的完整对局状态 */
+  private resync() {
+    this.t.send({ t: 'hello', name: this.me.name, charId: this.me.charId });
   }
 
   /** 某个座位当前由谁操作 */

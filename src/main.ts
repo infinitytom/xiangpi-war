@@ -778,10 +778,12 @@ function onResize() {
 }
 
 // ---------------- 启动 ----------------
+let ownsBoot = false;
 async function boot() {
   // CDN 与回退地址可能都加载了这份脚本，只启动一次
   if ((window as any).__xpBooted) return;
   (window as any).__xpBooted = true;
+  ownsBoot = true;
   scene = new GameScene($('stage'));
   await initPhysics();
   setupInput(scene.renderer.domElement);
@@ -806,6 +808,7 @@ async function boot() {
   window.visualViewport?.addEventListener('resize', onResize);
   window.addEventListener('orientationchange', () => setTimeout(onResize, 200));
   document.addEventListener('gesturestart', (e) => e.preventDefault());
+  document.addEventListener('visibilitychange', () => room?.onVisibility(document.visibilityState === 'hidden'));
   $('loading').remove();
   titleScreen();
   if (new URLSearchParams(location.search).get('room')) onlineMenu();
@@ -814,8 +817,8 @@ async function boot() {
 
 boot();
 
-// 调试 / 自动化测试用
-(window as any).__xp = {
+// 调试 / 自动化测试用（只在真正启动的那份脚本上挂）
+if (ownsBoot) (window as any).__xp = {
   get match() {
     return match;
   },
