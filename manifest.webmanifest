@@ -1,0 +1,10 @@
+{
+  "name": "橡皮大战",
+  "short_name": "橡皮大战",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#1c1a17",
+  "theme_color": "#1c1a17",
+  "start_url": ".",
+  "icons": []
+}
