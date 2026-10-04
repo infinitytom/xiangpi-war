@@ -48,6 +48,7 @@ export class GameScene {
   private power: THREE.Mesh;
   private powerTarget = -1;
   private powerFrac = 0;
+  private powerHold = 0; // 出手后定格显示实际力度的剩余秒数
   private shakeAmt = 0;
   private camBase = new THREE.Vector3();
   private crumbs: THREE.InstancedMesh;
@@ -133,8 +134,17 @@ export class GameScene {
 
   /** 力度圈：seat = -1 隐藏；frac 0–1（≥1 为满力） */
   setPower(seat: number, frac: number) {
+    if (this.powerHold > 0 && seat < 0) return; // 定格中不被清掉
+    this.powerHold = 0;
     this.powerTarget = seat;
     this.powerFrac = Math.max(0, Math.min(1, frac));
+  }
+
+  /** 出手后把实际用掉的力度定格显示一会儿 */
+  holdPower(seat: number, frac: number, seconds = 0.9) {
+    this.powerTarget = seat;
+    this.powerFrac = Math.max(0, Math.min(1, frac));
+    this.powerHold = seconds;
   }
 
   shake(amount: number) {
@@ -388,6 +398,10 @@ export class GameScene {
       if (tl.t > 0.8) this.tilts.delete(k);
     }
     // 力度圈
+    if (this.powerHold > 0) {
+      this.powerHold -= dt;
+      if (this.powerHold <= 0) this.powerTarget = -1;
+    }
     const pt = this.powerTarget >= 0 ? this.erasers[this.powerTarget] : null;
     if (pt && !pt.fall) {
       const geo = this.power.geometry as THREE.BufferGeometry;
@@ -399,6 +413,7 @@ export class GameScene {
       this.power.position.z = pt.mesh.position.z;
       this.power.scale.setScalar(Math.hypot(pt.def.w, pt.def.h) / 2 + 0.32);
       const m = this.power.material as THREE.MeshBasicMaterial;
+      m.opacity = this.powerHold > 0 ? Math.min(0.9, this.powerHold * 2) : 0.9;
       m.color.setHSL(0.33 * (1 - this.powerFrac), 0.65, this.powerFrac >= 0.99 ? 0.42 + Math.sin(time * 30) * 0.08 : 0.42);
     } else this.power.visible = false;
     // 橡皮屑

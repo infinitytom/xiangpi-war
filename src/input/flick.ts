@@ -86,7 +86,7 @@ export class FlickInput {
       this.el.setPointerCapture(e.pointerId);
     } catch {}
     this.startedInside = this.inside(t, this.toLocal(t, p));
-    this.samples = [{ t: e.timeStamp, x: p.x, y: p.y }];
+    this.samples = [{ t: performance.now(), x: p.x, y: p.y }];
     this.host.onStart(p, idx);
   };
 
@@ -117,7 +117,16 @@ export class FlickInput {
     e.preventDefault();
     const evs = typeof e.getCoalescedEvents === 'function' ? e.getCoalescedEvents() : [];
     const list = evs.length ? evs : [e];
-    for (const ev of list) if (this.feed(ev.clientX, ev.clientY, ev.timeStamp)) return;
+    // 时间戳统一用 performance.now()：部分平板浏览器的事件时间戳基准不可靠。
+    // 合并事件（coalesced）若带可信时间戳就用它，否则在上一个样本和现在之间均匀插值。
+    const now = performance.now();
+    const prevT = this.samples[this.samples.length - 1]?.t ?? now;
+    const trusted = list.every((ev, i) => Math.abs(ev.timeStamp - now) < 500 && (i === 0 || ev.timeStamp >= list[i - 1].timeStamp));
+    for (let i = 0; i < list.length; i++) {
+      const ev = list[i];
+      const t = trusted ? ev.timeStamp : prevT + ((now - prevT) * (i + 1)) / list.length;
+      if (this.feed(ev.clientX, ev.clientY, t)) return;
+    }
   };
 
   /**
@@ -211,7 +220,7 @@ export class FlickInput {
     if (e.pointerId !== this.pointerId) return;
     e.preventDefault();
     // 抬手位置也算一段：快速划过时最后一段常常只出现在 pointerup 里
-    if (this.feed(e.clientX, e.clientY, e.timeStamp)) return;
+    if (this.feed(e.clientX, e.clientY, performance.now())) return;
     this.reset();
     this.host.onCancel('lifted');
   };

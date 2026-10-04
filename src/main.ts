@@ -3,6 +3,8 @@ import { CHARACTERS, charById, RULES, SEAT_COLORS, SEAT_NAMES, SKILLS, type Char
 import { initPhysics, type Vec2 } from './core/sim';
 import { GameScene } from './render/scene';
 import { FlickInput, fingerToLaunch, type FlickTarget } from './input/flick';
+import { music } from './music';
+import { haptics } from './haptics';
 import { audioSettings, sfxFlick, sfxFloor, sfxHit, sfxSlide, sfxTick, unlockAudio } from './audio';
 import { Fullscreen, keepAwake } from './ui/fullscreen';
 import { Match, type AiLevel, type MatchEvent, type SeatConfig } from './game/match';
@@ -26,6 +28,8 @@ const settings = {
   faceToFace: false,
   sound: true,
   autoFullscreen: true,
+  music: true,
+  vibrate: true,
   name: '',
   localSeats: [
     { kind: 'human', charId: 'xiaobai' },
@@ -40,9 +44,23 @@ function saveSettings() {
   try {
     localStorage.setItem('xp_settings2', JSON.stringify(settings));
   } catch {}
+  applyAudioSettings();
+}
+function applyAudioSettings() {
   audioSettings.enabled = settings.sound;
+  haptics.enabled = settings.vibrate;
+  if (!settings.music) music.stop();
+  else if (audioUnlocked) music.start();
+}
+let audioUnlocked = false;
+/** 第一次触摸/点击后才能出声（浏览器限制），同时开始背景音乐 */
+function unlock() {
+  unlockAudio();
+  audioUnlocked = true;
+  if (settings.music && !music.playing && document.visibilityState === 'visible') music.start();
 }
 audioSettings.enabled = settings.sound;
+haptics.enabled = settings.vibrate;
 
 // ---------------- 全局状态 ----------------
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -52,6 +70,7 @@ let room: OnlineRoom | null = null;
 let mode: 'menu' | 'local' | 'online' = 'menu';
 let paused = false;
 let aiToken = -1;
+let gesturePeak = 0;
 let freezeUntil = 0; // 顿帧：重击时物理短暂停住
 let lastPowerMul = 1;
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -109,6 +128,7 @@ function onMatchEvent(e: MatchEvent) {
         }
         scene.startFall(f);
         setTimeout(sfxFloor, 620);
+        haptics.buzz([25, 40, 50]);
         toast(`${m.seats[f.index].name} 落桌！`, 1400);
       }
       break;
@@ -122,6 +142,7 @@ function onMatchEvent(e: MatchEvent) {
         scene.tilt(im.a, pa.x - pb.x, pa.y - pb.y, im.speed);
         scene.tilt(im.b, pb.x - pa.x, pb.y - pa.y, im.speed);
         if (im.speed > 2) scene.burst(im.x, im.y, k);
+        if (im.speed > 2.5) haptics.buzz(Math.round(12 + Math.min(1, k) * 30));
         if (im.speed > 5) {
           scene.shake(im.speed * 0.018);
           freezeUntil = performance.now() + Math.min(90, im.speed * 7);
@@ -131,6 +152,7 @@ function onMatchEvent(e: MatchEvent) {
     case 'flick': {
       scene.squash(e.seat, 0.4 + e.speed / 12);
       sfxFlick(e.speed / 12);
+      if (controlOf(e.seat) === 'me') haptics.buzz(Math.round(8 + Math.min(1, e.speed / 12) * 18));
       const sp = m.sim.snapshot(e.seat);
       if (e.speed > 6) scene.burst(sp.x, sp.y, e.speed / 30, '#d9cdb4');
       if (e.skill) toast(`${m.seats[e.seat].name}：${SKILLS[e.skill].name}！`, 1300);
@@ -186,7 +208,7 @@ function runAI() {
 function setupInput(el: HTMLElement) {
   new FlickInput(el, {
     pick() {
-      unlockAudio();
+      unlock();
       if (!match || paused || match.phase !== 'aim') return null;
       return controlOf(match.turn) === 'me' ? match.turn : null;
     },
@@ -200,23 +222,27 @@ function setupInput(el: HTMLElement) {
     onStart(p, i) {
       scene.trailStart(p.x, p.y);
       scene.setPower(i, 0);
+      gesturePeak = 0;
     },
     onMove(p, speed) {
       scene.trailAdd(p.x, p.y);
       const m = match;
-      if (m && m.phase === 'aim') scene.setPower(m.turn, fingerToLaunch(speed, settings.sensitivity) / m.maxSpeedOf(m.turn));
+      if (!m || m.phase !== 'aim') return;
+      // 显示这次划动到目前为止的最高力度，避免手指减速时圈缩回去
+      gesturePeak = Math.max(gesturePeak, fingerToLaunch(speed, settings.sensitivity) / m.maxSpeedOf(m.turn));
+      scene.setPower(m.turn, gesturePeak);
     },
     onFlick(i, r) {
       const m = match!;
       const speed = fingerToLaunch(r.fingerSpeed, settings.sensitivity);
       const skill = m.armed;
       const f = { dir: r.dir, speed, point: r.point };
-      scene.setPower(-1, 0);
+      scene.holdPower(i, Math.min(1, speed / m.maxSpeedOf(i)));
       m.flick(i, f, skill);
       sendAction({ kind: 'flick', seat: i, f, skill });
     },
     onTap(p: Vec2) {
-      unlockAudio();
+      unlock();
       const m = match;
       if (!m || paused) return;
       if (m.phase === 'resolve' && controlOf(m.actorSeat) === 'me' && m.brake(m.actorSeat)) {
@@ -250,7 +276,10 @@ function logic(t: number) {
   if (!m || paused || dt <= 0) return dt;
   const before = Math.ceil(m.turnLeft);
   if (t >= freezeUntil || hidden) m.tick(dt);
-  if (m.phase === 'aim' && m.timer && Math.ceil(m.turnLeft) !== before && m.turnLeft <= 5 && m.turnLeft > 0 && controlOf(m.turn) === 'me') sfxTick();
+  if (m.phase === 'aim' && m.timer && Math.ceil(m.turnLeft) !== before && m.turnLeft <= 5 && m.turnLeft > 0 && controlOf(m.turn) === 'me') {
+    sfxTick();
+    haptics.buzz(6);
+  }
   runAI();
   if (m.phase === 'resolve' && controlOf(m.actorSeat) === 'ai' && shouldAutoBrake(m.sim, m.actorSeat)) {
     if (m.brake(m.actorSeat)) sendAction({ kind: 'brake', seat: m.actorSeat });
@@ -611,6 +640,8 @@ function settingsScreen(back: 'title' | 'pause') {
     <label class="row"><input type="checkbox" id="s-timer" ${settings.timer ? 'checked' : ''}> 本地对战每次限时 ${RULES.turnSeconds} 秒</label>
     <label class="row"><input type="checkbox" id="s-f2f" ${settings.faceToFace ? 'checked' : ''}> 面对面模式（两人本地对战，平板平放）</label>
     <label class="row"><input type="checkbox" id="s-sound" ${settings.sound ? 'checked' : ''}> 音效</label>
+    <label class="row"><input type="checkbox" id="s-music" ${settings.music ? 'checked' : ''}> 背景音乐</label>
+    <label class="row"><input type="checkbox" id="s-vibrate" ${settings.vibrate ? 'checked' : ''}> 震动${haptics.supported ? '' : '（这台设备的浏览器不支持网页震动，iPad / iPhone 都不支持）'}</label>
     <label class="row"><input type="checkbox" id="s-autofs" ${settings.autoFullscreen ? 'checked' : ''}> 开始对战时自动全屏</label>
     <button class="stamp" data-act="${back === 'title' ? 'title' : 'resume'}">好了</button>`);
   const sens = $<HTMLInputElement>('s-sens');
@@ -619,7 +650,7 @@ function settingsScreen(back: 'title' | 'pause') {
     $('s-sens-v').textContent = settings.sensitivity.toFixed(2);
     saveSettings();
   };
-  const bind = (id: string, key: 'timer' | 'faceToFace' | 'sound' | 'autoFullscreen') => {
+  const bind = (id: string, key: 'timer' | 'faceToFace' | 'sound' | 'autoFullscreen' | 'music' | 'vibrate') => {
     const el = $<HTMLInputElement>(id);
     el.onchange = () => {
       settings[key] = el.checked;
@@ -631,6 +662,8 @@ function settingsScreen(back: 'title' | 'pause') {
   bind('s-f2f', 'faceToFace');
   bind('s-sound', 'sound');
   bind('s-autofs', 'autoFullscreen');
+  bind('s-music', 'music');
+  bind('s-vibrate', 'vibrate');
 }
 
 function pauseMenu() {
@@ -651,7 +684,7 @@ async function maybeAutoFullscreen() {
 }
 
 function onAction(act: string, el?: HTMLElement) {
-  unlockAudio();
+  unlock();
   switch (act) {
     case 'local':
       focusSeat = 0;
@@ -738,7 +771,7 @@ function setupFullscreen() {
     if (Fullscreen.isStandalone()) btn.style.display = 'none';
   };
   btn.addEventListener('click', async () => {
-    unlockAudio();
+    unlock();
     if (!Fullscreen.isSupported()) {
       if (Fullscreen.isIOSPhone()) toast('iPhone 不支持网页全屏：点浏览器的「分享」→「添加到主屏幕」，从桌面图标打开就是全屏', 5200);
       else if (Fullscreen.isEmbedded()) toast('当前页面嵌在别的页面里，无法全屏。请在新标签页单独打开游戏', 4200);
@@ -789,7 +822,7 @@ async function boot() {
   setupInput(scene.renderer.domElement);
   setupFullscreen();
   $('btn-menu').addEventListener('click', () => {
-    unlockAudio();
+    unlock();
     pauseMenu();
   });
   $('btn-skill').addEventListener('click', () => {
@@ -808,7 +841,12 @@ async function boot() {
   window.visualViewport?.addEventListener('resize', onResize);
   window.addEventListener('orientationchange', () => setTimeout(onResize, 200));
   document.addEventListener('gesturestart', (e) => e.preventDefault());
-  document.addEventListener('visibilitychange', () => room?.onVisibility(document.visibilityState === 'hidden'));
+  document.addEventListener('visibilitychange', () => {
+    const hidden = document.visibilityState === 'hidden';
+    room?.onVisibility(hidden);
+    if (hidden) music.stop();
+    else if (settings.music && audioUnlocked) music.start();
+  });
   $('loading').remove();
   titleScreen();
   if (new URLSearchParams(location.search).get('room')) onlineMenu();
@@ -830,6 +868,7 @@ if (ownsBoot) (window as any).__xp = {
   },
   onAction,
   settings,
+  music,
   /** 测试用：快进 sec 秒 */
   advance(sec: number) {
     for (let t = 0; t < sec; t += 1 / 60) {

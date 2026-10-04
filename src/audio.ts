@@ -91,3 +91,8 @@ export function sfxSlide(level: number) {
   const v = audioSettings.enabled ? Math.min(1, level) * 0.22 : 0;
   slideGain.gain.setTargetAtTime(v, ctx.currentTime, 0.05);
 }
+
+/** 给背景音乐等模块用：拿到已解锁的音频上下文与总音量节点 */
+export function audioOut(): { ctx: AudioContext; master: GainNode } | null {
+  return ctx && master ? { ctx, master } : null;
+}
