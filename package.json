@@ -1,0 +1,31 @@
+{
+  "name": "xiangpi-war",
+  "version": "1.0.0",
+  "description": "",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "build:single": "vite build --mode single",
+    "preview": "vite preview --host",
+    "typecheck": "tsc",
+    "balance": "tsx tools/balance-sim.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@dimforge/rapier2d-deterministic-compat": "^0.21.0",
+    "goeasy": "^2.14.9",
+    "mqtt": "^5.16.0",
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "@types/three": "^0.186.0",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.2",
+    "vite-plugin-singlefile": "^2.3.3"
+  },
+  "private": true,
+  "type": "module"
+}
