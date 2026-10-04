@@ -228,8 +228,8 @@ function setupInput(el: HTMLElement) {
       scene.trailAdd(p.x, p.y);
       const m = match;
       if (!m || m.phase !== 'aim') return;
-      // 显示这次划动到目前为止的最高力度，避免手指减速时圈缩回去
-      gesturePeak = Math.max(gesturePeak, fingerToLaunch(speed, settings.sensitivity) / m.maxSpeedOf(m.turn));
+      // 甩动时显示当前力度（带一点余晖，不会一闪而过）；松手时停住也就没力了
+      gesturePeak = Math.max(fingerToLaunch(speed, settings.sensitivity) / m.maxSpeedOf(m.turn), gesturePeak * 0.85);
       scene.setPower(m.turn, gesturePeak);
     },
     onFlick(i, r) {
@@ -252,13 +252,13 @@ function setupInput(el: HTMLElement) {
       }
       if (m.phase === 'aim' && controlOf(m.turn) === 'me') {
         const s = m.sim.snapshot(m.turn);
-        if (Math.hypot(s.x - p.x, s.y - p.y) < 4) toast('要在橡皮周围的虚线圈里起手', 1500);
+        if (Math.hypot(s.x - p.x, s.y - p.y) < 4) toast('按住自己的橡皮，再甩出去', 1500);
       }
     },
     onCancel(reason) {
       scene.setPower(-1, 0);
       if (!match || match.phase !== 'aim') return;
-      if (reason === 'weak') toast('太轻了，再弹快一点', 1400);
+      if (reason === 'weak') toast('太轻了，甩快一点，甩着松手', 1600);
     },
   });
 }
@@ -304,7 +304,6 @@ function frame(t: number) {
     });
     updateTimer();
   } else sfxSlide(0);
-  scene.showRing(m && m.phase === 'aim' && controlOf(m.turn) === 'me' && !paused ? m.turn : -1);
   scene.update(dt, t / 1000);
   requestAnimationFrame(frame);
 }
@@ -636,7 +635,7 @@ function showRoundResult() {
 function settingsScreen(back: 'title' | 'pause') {
   showOverlay(`
     <h2>设置</h2>
-    <label class="row">弹指灵敏度 <input type="range" id="s-sens" min="0.5" max="1.8" step="0.05" value="${settings.sensitivity}"><span id="s-sens-v">${settings.sensitivity.toFixed(2)}</span></label>
+    <label class="row">甩动灵敏度 <input type="range" id="s-sens" min="0.5" max="1.8" step="0.05" value="${settings.sensitivity}"><span id="s-sens-v">${settings.sensitivity.toFixed(2)}</span></label>
     <label class="row"><input type="checkbox" id="s-timer" ${settings.timer ? 'checked' : ''}> 本地对战每次限时 ${RULES.turnSeconds} 秒</label>
     <label class="row"><input type="checkbox" id="s-f2f" ${settings.faceToFace ? 'checked' : ''}> 面对面模式（两人本地对战，平板平放）</label>
     <label class="row"><input type="checkbox" id="s-sound" ${settings.sound ? 'checked' : ''}> 音效</label>
@@ -859,6 +858,10 @@ async function boot() {
   scene = new GameScene($('stage'));
   await initPhysics();
   setupInput(scene.renderer.domElement);
+  scene.onRendererRecreated = (canvas) => {
+    setupInput(canvas);
+    toast('画面已恢复', 1200);
+  };
   setupFullscreen();
   $('btn-menu').addEventListener('click', () => {
     unlock();

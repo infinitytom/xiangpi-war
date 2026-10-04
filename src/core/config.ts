@@ -36,11 +36,11 @@ export const RULES = {
 };
 
 export const FLICK = {
-  zoneExtra: 1.0, // 弹区 = 橡皮外接圆半径 + 这个距离
-  fingerRadius: 0.12,
-  sampleWindowMs: 35, // 取击中前多长时间的手指速度（太长会把起手的慢速算进去）
-  speedGain: 0.32,
-  speedExp: 1.08,
+  grabMargin: 0.35, // 按在橡皮轮廓外这么远以内也算按住
+  releaseWindowMs: 110, // 出手速度取松手前这段时间内的峰值
+  maxDrag: 2.4, // 手指甩出这么远就自动出手，不必等抬手
+  speedGain: 0.42,
+  speedExp: 1.05,
   minFingerSpeed: 0.4,
 };
 

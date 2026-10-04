@@ -2,7 +2,6 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { eraserMesh } from './erasers';
-import { zoneRadius } from '../input/flick';
 import type { Effects } from '../core/sim';
 import { TABLE, type EraserDef } from '../core/config';
 import type { FallInfo, Snapshot } from '../core/sim';
@@ -37,8 +36,6 @@ export class GameScene {
   scene = new THREE.Scene();
   camera: THREE.PerspectiveCamera;
   erasers: EraserView[] = [];
-  private ring: THREE.Mesh;
-  private ringTarget = -1;
   private raycaster = new THREE.Raycaster();
   private aimPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -0.21);
   private trail: THREE.Line;
@@ -59,14 +56,51 @@ export class GameScene {
   private markTex = flickRing();
   portrait = false;
 
+  /** 图形上下文丢失的时刻（0 = 正常）。iPad 切到后台时常会丢失 */
+  contextLostAt = 0;
+  /** 渲染器重建后通知外部（要重新绑定触摸输入） */
+  onRendererRecreated: ((canvas: HTMLCanvasElement) => void) | null = null;
+
+  private createRenderer() {
+    const r = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    // 触屏设备用较低的像素比：省显存，也更不容易在后台被系统回收图形上下文
+    const touch = matchMedia('(pointer: coarse)').matches;
+    r.setPixelRatio(Math.min(window.devicePixelRatio, touch ? 1.5 : 2));
+    r.shadowMap.enabled = true;
+    r.shadowMap.type = THREE.PCFShadowMap;
+    r.toneMapping = THREE.ACESFilmicToneMapping;
+    r.toneMappingExposure = 1.05;
+    r.outputColorSpace = THREE.SRGBColorSpace;
+    r.domElement.addEventListener('webglcontextlost', () => (this.contextLostAt = performance.now()));
+    r.domElement.addEventListener('webglcontextrestored', () => (this.contextLostAt = 0));
+    return r;
+  }
+
+  /** 丢失后迟迟没恢复：整个换一个新渲染器（贴图会在下次渲染时重新上传） */
+  recreateRenderer() {
+    const old = this.renderer;
+    try {
+      old.dispose();
+    } catch {}
+    old.domElement.remove();
+    this.renderer = this.createRenderer();
+    this.container.appendChild(this.renderer.domElement);
+    this.contextLostAt = 0;
+    this.resize();
+    this.onRendererRecreated?.(this.renderer.domElement);
+  }
+
+  /** 每帧调用：上下文丢失超过 1.5 秒且页面在前台，就重建 */
+  checkContext() {
+    if (document.visibilityState !== 'visible') return;
+    const lost = this.contextLostAt > 0 || this.renderer.getContext().isContextLost();
+    if (!lost) return;
+    if (!this.contextLostAt) this.contextLostAt = performance.now();
+    if (performance.now() - this.contextLostAt > 1500) this.recreateRenderer();
+  }
+
   constructor(private container: HTMLElement) {
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFShadowMap;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.05;
-    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    this.renderer = this.createRenderer();
     container.appendChild(this.renderer.domElement);
 
     this.scene.background = new THREE.Color('#1c1a17');
@@ -92,15 +126,6 @@ export class GameScene {
 
     this.buildDesk();
     this.buildFloor();
-
-    // 弹区圈
-    this.ring = new THREE.Mesh(
-      new THREE.PlaneGeometry(1, 1),
-      new THREE.MeshBasicMaterial({ map: flickRing(), transparent: true, opacity: 0, depthWrite: false })
-    );
-    this.ring.rotation.x = -Math.PI / 2;
-    this.ring.position.y = 0.005;
-    this.scene.add(this.ring);
 
     // 手指轨迹（铅笔线）
     const tg = new THREE.BufferGeometry();
@@ -289,10 +314,6 @@ export class GameScene {
     return this.erasers.some((e) => e.fall && !e.fall.done);
   }
 
-  showRing(i: number) {
-    this.ringTarget = i;
-  }
-
   // ---------- 输入辅助 ----------
   /** 屏幕坐标 → 物理坐标（与橡皮中层高度的平面求交） */
   screenToTable(clientX: number, clientY: number): { x: number; y: number } | null {
@@ -316,6 +337,7 @@ export class GameScene {
 
   // ---------- 每帧 ----------
   update(dt: number, time: number, render = true) {
+    this.checkContext();
     for (const e of this.erasers) {
       // 技能效果：扎根 = 圈变粗变棕，定身 = 圈加深，蓄势 = 圈闪烁
       const mm = e.mark.material as THREE.MeshBasicMaterial;
@@ -370,16 +392,6 @@ export class GameScene {
         if (f.t > 3) f.done = true;
       }
     }
-
-    // 弹区圈：跟随当前可弹的橡皮，呼吸闪烁
-    const rm = this.ring.material as THREE.MeshBasicMaterial;
-    const target = this.ringTarget >= 0 ? this.erasers[this.ringTarget] : null;
-    if (target && !target.fall) {
-      this.ring.position.x = target.mesh.position.x;
-      this.ring.position.z = target.mesh.position.z;
-      this.ring.scale.setScalar(zoneRadius(target.def) * 2);
-      rm.opacity += (0.32 + Math.sin(time * 3) * 0.1 - rm.opacity) * Math.min(1, dt * 8);
-    } else rm.opacity += (0 - rm.opacity) * Math.min(1, dt * 8);
 
     // 轨迹淡出
     const lm = this.trail.material as THREE.LineBasicMaterial;

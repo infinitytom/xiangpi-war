@@ -14,6 +14,8 @@ export interface Transport {
   /** 在线成员变化（含自己） */
   onMembers(cb: (ids: string[]) => void): void;
   leave(): void;
+  /** 可选：底层断线重连后回调 */
+  onReconnect?(cb: () => void): void;
 }
 
 /** 每个标签页一个稳定 id（刷新不变，便于断线重连） */

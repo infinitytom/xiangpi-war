@@ -99,6 +99,9 @@ export class OnlineRoom {
     });
     this.t.onMembers((ids) => this.onMembers(ids));
     this.watchTimer = window.setInterval(() => this.watch(), 1000);
+    this.t.onReconnect?.(() => {
+      if (this.lobby.started && !this.isHost) this.resync();
+    });
   }
 
   leave() {
@@ -126,9 +129,20 @@ export class OnlineRoom {
   }
 
   private hbCount = 0;
+  private waitSince = 0;
+  private stuckBeats = 0;
+  private lastResync = 0;
   private watch() {
     if (!this.joinedOk || !this.lobby.host) return;
-    if (this.isHost && ++this.hbCount % 3 === 0) this.t.send({ t: 'hosthb', ver: this.lobby.ver, turnNo: this.match?.turnNo ?? 0 });
+    if (this.isHost && ++this.hbCount % 4 === 0) this.t.send({ t: 'hosthb', ver: this.lobby.ver, turnNo: this.match?.turnNo ?? 0, phase: this.match?.phase });
+    // 客户端看门狗：等房主校正太久，就主动要完整状态
+    const m = this.match;
+    if (m && !this.isHost) {
+      const waiting = m.phase === 'waitSync';
+      if (waiting && !this.waitSince) this.waitSince = Date.now();
+      if (!waiting) this.waitSince = 0;
+      if (waiting && Date.now() - this.waitSince > 3500) this.resync();
+    }
     if (this.isOnline(this.lobby.host)) return;
     const next = this.successor();
     if (!next) return;
@@ -273,6 +287,18 @@ export class OnlineRoom {
         return;
       }
       case 'hosthb': {
+        // 不是房主：拿房主的进度对一下，落后了或卡住了就要完整状态
+        if (!this.isHost && m.from === this.lobby.host && this.match) {
+          const mine = this.match.turnNo;
+          const stuck = m.turnNo === mine && m.phase === 'aim' && (this.match.phase === 'resolve' || this.match.phase === 'waitSync');
+          // 「卡住」要连续两次心跳都成立才算，避免自己刚出手、消息还在路上时误判
+          this.stuckBeats = stuck ? this.stuckBeats + 1 : 0;
+          if (m.turnNo > mine || this.stuckBeats >= 2 || (m.phase === 'roundOver' && this.match.phase === 'aim')) {
+            this.stuckBeats = 0;
+            this.resync();
+          }
+          return;
+        }
         // 两个人都以为自己是房主：对局进度更新的留下（进度相同则座位靠前的留下），另一个退位并要完整状态
         if (m.from === this.lobby.host && !this.isHost) return;
         const mine = this.match?.turnNo ?? 0;
@@ -402,6 +428,8 @@ export class OnlineRoom {
 
   /** 向房主要一份最新的完整对局状态 */
   private resync() {
+    if (Date.now() - this.lastResync < 3000) return;
+    this.lastResync = Date.now();
     this.t.send({ t: 'hello', name: this.me.name, charId: this.me.charId });
   }
 

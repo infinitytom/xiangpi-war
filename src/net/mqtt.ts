@@ -13,6 +13,10 @@ export class MqttTransport implements Transport {
   private seen = new Map<string, number>();
   private hb = 0;
   private lastMembers = '';
+  private reconnectCbs: (() => void)[] = [];
+  onReconnect(cb: () => void) {
+    this.reconnectCbs.push(cb);
+  }
 
   constructor(readonly selfId: string) {}
 
@@ -24,8 +28,8 @@ export class MqttTransport implements Transport {
           clientId: `xp_${this.selfId}_${Math.random().toString(36).slice(2, 6)}`,
           clean: true,
           connectTimeout: 6000,
-          reconnectPeriod: 2000,
-          keepalive: 30,
+          reconnectPeriod: 1000,
+          keepalive: 20,
           will: { topic: this.topic, payload: JSON.stringify({ t: '_bye', from: this.selfId }), qos: 0, retain: false },
         });
         const fail = (e: unknown) => {
@@ -53,7 +57,7 @@ export class MqttTransport implements Transport {
     }
     if (!this.client) throw new Error(`连不上联机服务器：${(lastErr as Error)?.message ?? '网络错误'}`);
     const c = this.client;
-    await new Promise<void>((resolve, reject) => c.subscribe(this.topic, { qos: 0 }, (err) => (err ? reject(err) : resolve())));
+    await new Promise<void>((resolve, reject) => c.subscribe(this.topic, { qos: 1 }, (err) => (err ? reject(err) : resolve())));
     c.on('message', (_t, payload) => {
       let m: NetMsg;
       try {
@@ -71,8 +75,11 @@ export class MqttTransport implements Transport {
       this.checkMembers();
       for (const cb of this.msgCbs) cb(m);
     });
-    // 断线重连后重新订阅
-    c.on('connect', () => c.subscribe(this.topic, { qos: 0 }));
+    // 断线重连后重新订阅，并通知上层补一次同步（断线期间的消息可能丢了）
+    c.on('connect', () => {
+      c.subscribe(this.topic, { qos: 1 });
+      for (const cb of this.reconnectCbs) cb();
+    });
     const beat = () => {
       this.publish({ t: '_hb' });
       this.checkMembers();
@@ -86,7 +93,9 @@ export class MqttTransport implements Transport {
 
   private publish(msg: Record<string, unknown>) {
     if (!this.client || !this.topic) return;
-    this.client.publish(this.topic, JSON.stringify({ ...msg, from: this.selfId }), { qos: 0 });
+    // 心跳丢了无所谓；游戏消息用 QoS 1（服务器确认送达，断线重连后会补发）
+    const qos = msg.t === '_hb' ? 0 : 1;
+    this.client.publish(this.topic, JSON.stringify({ ...msg, from: this.selfId }), { qos });
   }
 
   private checkMembers(force = false) {
