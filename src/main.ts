@@ -810,6 +810,45 @@ function onResize() {
   });
 }
 
+// ---------------- 版本更新检查 ----------------
+// 部署时会写 version.json。页面启动、从后台切回来时检查；有新版就在标题页自动刷新，对局中给出提示。
+let updateReady = false;
+async function checkUpdate() {
+  if (location.protocol !== 'https:' || updateReady) return;
+  try {
+    const r = await fetch(`version.json?t=${Date.now()}`, { cache: 'no-store' });
+    if (!r.ok) return;
+    const v = await r.json();
+    if (!v?.build || v.build === __BUILD_ID__) return;
+    updateReady = true;
+    latestBuild = v.build;
+    let tried = '';
+    try {
+      tried = sessionStorage.getItem('xp_reload_to') ?? '';
+    } catch {}
+    // 同一个版本只自动刷新一次，避免 CDN 还没更新时反复刷新
+    if (mode === 'menu' && tried !== v.build && !$('overlay').querySelector('input:focus')) reloadToLatest();
+    else showUpdateBadge();
+  } catch {}
+}
+let latestBuild = '';
+function reloadToLatest() {
+  try {
+    sessionStorage.setItem('xp_reload_to', latestBuild);
+  } catch {}
+  const url = new URL(location.href);
+  url.searchParams.set('v', latestBuild); // 带上版本号，绕过 CDN 对首页的缓存
+  location.replace(url.toString());
+}
+function showUpdateBadge() {
+  if (document.getElementById('update-badge')) return;
+  const b = document.createElement('button');
+  b.id = 'update-badge';
+  b.textContent = '有新版本，点这里刷新';
+  b.onclick = () => reloadToLatest();
+  document.getElementById('hud')!.appendChild(b);
+}
+
 // ---------------- 启动 ----------------
 let ownsBoot = false;
 async function boot() {
@@ -845,11 +884,16 @@ async function boot() {
     const hidden = document.visibilityState === 'hidden';
     room?.onVisibility(hidden);
     if (hidden) music.stop();
-    else if (settings.music && audioUnlocked) music.start();
+    else {
+      if (settings.music && audioUnlocked) music.start();
+      checkUpdate();
+    }
   });
   $('loading').remove();
   titleScreen();
   if (new URLSearchParams(location.search).get('room')) onlineMenu();
+  checkUpdate();
+  setInterval(checkUpdate, 5 * 60 * 1000);
   requestAnimationFrame(frame);
 }
 

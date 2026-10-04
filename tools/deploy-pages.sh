@@ -5,10 +5,13 @@
 set -euo pipefail
 WT="$1"
 REPO="infinitytom/xiangpi-war"
+BUILD_ID=$(date +%s)
+export BUILD_ID
 npm run build
 rm -rf "$WT/assets"
 cp -r dist/assets "$WT/assets"
 cp dist/manifest.webmanifest "$WT/"
+echo "{\"build\": \"$BUILD_ID\"}" > "$WT/version.json"
 touch "$WT/.nojekyll"
 git -C "$WT" add -A
 git -C "$WT" commit -q -m "更新静态资源" ${TRAILER:+-m "$TRAILER"} || true
