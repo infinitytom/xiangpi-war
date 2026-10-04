@@ -11,7 +11,7 @@ export const PHYS = {
   restSpeed: 0.04,
   restSpin: 0.08,
   maxResolveTime: 8,
-  globalMaxSpeed: 13.5, // 任何橡皮的弹出速度上限
+  globalMaxSpeed: 14.6, // 任何橡皮的弹出速度上限
 };
 
 export const SKILL_NUM = {
@@ -39,7 +39,7 @@ export const FLICK = {
   grabMargin: 0.35, // 按在橡皮轮廓外这么远以内也算按住
   releaseWindowMs: 110, // 出手速度取松手前这段时间内的峰值
   maxDrag: 2.4, // 手指甩出这么远就自动出手，不必等抬手
-  speedGain: 0.19, // 玩家实测：旧值 0.42 配灵敏度 0.45 手感最好，折算后作为默认（灵敏度 1）
+  speedGain: 0.205, // 玩家实测：旧值 0.42 配灵敏度 0.45 手感最好，折算后作为默认（灵敏度 1）
   speedExp: 1.05,
   minFingerSpeed: 0.4,
 };
@@ -49,9 +49,10 @@ const MASS = [0.6, 0.8, 1.0, 1.3, 1.7];
 const SIZE = [0.72, 0.86, 1.0, 1.14, 1.3]; // 面积的线性缩放
 const GRIP = [0.5, 0.6, 0.7, 0.82, 0.95]; // 桌面摩擦 μ
 const BOUNCE = [0.2, 0.32, 0.45, 0.58, 0.72]; // 恢复系数
-const POWER = [8.5, 9.5, 10.5, 11.5, 12.5]; // 标准质量下的最大弹出速度；冲量 = 速度 × 质量^0.6（越重越慢，但不至于推不动）
+const POWER = [9.2, 10.3, 11.3, 12.4, 13.5]; // 标准质量下的最大弹出速度；冲量 = 速度 × 质量^0.6（越重越慢，但不至于推不动）
 
-const BASE_W = 1.2, BASE_H = 0.75; // 标准橡皮尺寸（比 M1 缩小了约 25%）
+const SIZE_K = 0.85; // 整体缩放（玩家反馈再小一点）
+const BASE_W = 1.2 * SIZE_K, BASE_H = 0.75 * SIZE_K; // 标准橡皮尺寸
 
 export type SkillId = 'brace' | 'charge' | 'spring' | 'root' | 'curve' | 'sweep' | 'stick' | 'brake';
 export type Skin = 'white' | 'elephant' | 'jelly' | 'sand' | 'bear' | 'pen' | 'putty' | 'crumb';
@@ -94,7 +95,7 @@ export const CHARACTERS: CharacterDef[] = [
   { id: 'elephant', name: '大象', origin: '大块美术橡皮', type: '力量', stats: { mass: 4, size: 4, grip: 3, bounce: 1, power: 1 }, shape: 'box', aspect: 1.45, skin: 'elephant', skill: 'charge' },
   { id: 'jelly', name: '果冻', origin: '香味果冻橡皮', type: '灵巧', stats: { mass: 1, size: 2, grip: 3, bounce: 4.25, power: 4 }, shape: 'box', aspect: 1.3, skin: 'jelly', skill: 'spring' },
   { id: 'sand', name: '砂擦', origin: '双色砂橡皮', type: '防守', stats: { mass: 3, size: 3, grip: 3.75, bounce: 1, power: 3 }, shape: 'box', aspect: 1.9, skin: 'sand', skill: 'root' },
-  { id: 'bear', name: '小熊头', origin: '卡通造型橡皮', type: '灵巧', stats: { mass: 3, size: 2, grip: 3, bounce: 3, power: 3.25 }, shape: 'ball', aspect: 1, skin: 'bear', skill: 'curve' },
+  { id: 'bear', name: '小熊头', origin: '卡通造型橡皮', type: '灵巧', stats: { mass: 3, size: 2, grip: 3, bounce: 3, power: 3.4 }, shape: 'ball', aspect: 1, skin: 'bear', skill: 'curve' },
   { id: 'pen', name: '笔形擦', origin: '长条铅笔头橡皮', type: '力量', stats: { mass: 3, size: 4, grip: 4.25, bounce: 2.5, power: 3 }, shape: 'box', aspect: 3.6, skin: 'pen', skill: 'sweep', passive: '长条形，被撞到一端时会转动卸力' },
   { id: 'putty', name: '橡皮泥', origin: '可塑橡皮', type: '防守', stats: { mass: 2, size: 3, grip: 4, bounce: 1, power: 3.75 }, shape: 'ball', aspect: 1, skin: 'putty', skill: 'stick' },
   { id: 'crumb', name: '橡皮屑', origin: '用剩的小块橡皮', type: '灵巧', stats: { mass: 2, size: 1, grip: 3, bounce: 2, power: 4.25 }, shape: 'box', aspect: 1.3, skin: 'crumb', skill: 'brake' },
@@ -130,7 +131,7 @@ export function eraserDef(c: CharacterDef): EraserDef {
     h = Math.sqrt(area / c.aspect);
     w = h * c.aspect;
   }
-  const t = c.skin === 'putty' ? 0.42 * scale : c.skin === 'pen' ? h * 0.9 : 0.34 * Math.sqrt(scale);
+  const t = c.skin === 'putty' ? 0.42 * SIZE_K * scale : c.skin === 'pen' ? h * 0.9 : 0.34 * SIZE_K * Math.sqrt(scale);
   return {
     charId: c.id,
     shape: c.shape,
