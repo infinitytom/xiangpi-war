@@ -451,6 +451,16 @@ export class GameScene {
       this.crumbs.setMatrixAt(i, this.tmpM);
     }
     this.crumbs.instanceMatrix.needsUpdate = true;
+    // 开场镜头
+    if (this.applyIntroCamera()) {
+      this.introWasOn = true;
+      if (render) this.renderer.render(this.scene, this.camera);
+      return;
+    }
+    if (this.introWasOn) {
+      this.introWasOn = false;
+      this.endIntroCamera();
+    }
     // 镜头抖动
     if (this.shakeAmt > 0.001) {
       this.camera.position.set(this.camBase.x + (Math.random() - 0.5) * this.shakeAmt, this.camBase.y, this.camBase.z + (Math.random() - 0.5) * this.shakeAmt);
@@ -459,6 +469,47 @@ export class GameScene {
 
     if (render) this.renderer.render(this.scene, this.camera);
   }
+
+  // ---------- 开场镜头：斜视 → 俯视 ----------
+  private introStart = 0;
+  private introDur = 0;
+  private topDist = 10;
+  /** 开场镜头是否还在播（按时间判断，切后台也会自然结束） */
+  introActive() {
+    return performance.now() < this.introStart + this.introDur * 1000;
+  }
+  intro(seconds: number) {
+    this.introStart = performance.now();
+    this.introDur = seconds;
+  }
+  skipIntro() {
+    this.introDur = 0;
+  }
+  private applyIntroCamera(): boolean {
+    const el = (performance.now() - this.introStart) / 1000;
+    if (this.introDur <= 0 || el >= this.introDur) return false;
+    const u = Math.min(1, el / this.introDur);
+    const k = u * u * (3 - 2 * u);
+    // 仰角 28° → 90°，同时轻微转向、拉近
+    const elev = THREE.MathUtils.degToRad(28 + 62 * k);
+    const yaw = THREE.MathUtils.degToRad(-22 * (1 - k));
+    const r = this.topDist * (0.82 + 0.18 * k);
+    // 横屏：相机从桌子前方（+z）升起；竖屏：从 +x 方向升起，结束时与俯视画面方向一致
+    const hx0 = this.portrait ? 1 : 0, hz0 = this.portrait ? 0 : 1;
+    const hx = hx0 * Math.cos(yaw) - hz0 * Math.sin(yaw), hz = hx0 * Math.sin(yaw) + hz0 * Math.cos(yaw);
+    const ce = Math.cos(elev), se = Math.sin(elev);
+    this.camera.position.set(hx * ce * r, se * r, hz * ce * r + 0.0001);
+    // 相机真实的上方向：始终垂直于视线，到正上方时恰好等于俯视时的上方向
+    this.camera.up.set(-hx * se, ce, -hz * se).normalize();
+    this.camera.lookAt(0, 0, 0);
+    return true;
+  }
+  private endIntroCamera() {
+    this.camera.position.copy(this.camBase);
+    this.camera.up.set(this.portrait ? -1 : 0, 0, this.portrait ? 0 : -1);
+    this.camera.lookAt(0, 0, 0);
+  }
+  private introWasOn = false;
 
   /** 让桌面恰好铺满屏幕；竖屏时把相机转 90°，桌子长边对齐屏幕长边 */
   resize() {
@@ -480,6 +531,7 @@ export class GameScene {
     const dist = visH / 2 / Math.tan(vfov / 2);
     this.camera.position.set(0, dist, 0.0001);
     this.camBase.copy(this.camera.position);
+    this.topDist = dist;
     this.camera.up.set(this.portrait ? -1 : 0, 0, this.portrait ? 0 : -1);
     this.camera.lookAt(0, 0, 0);
     this.camera.updateProjectionMatrix();

@@ -123,6 +123,10 @@ function onMatchEvent(e: MatchEvent) {
         if (!er.alive) scene.erasers[i].mesh.visible = false, (scene.erasers[i].mark.visible = false);
       });
       break;
+    case 'roundStart':
+      // 开场镜头：第一局完整一点，之后的局快一些；点一下屏幕可跳过
+      scene.intro(m.round <= 1 ? 1.8 : 1.1);
+      break;
     case 'falls':
       for (const f of e.falls) {
         if (f.pos.x === 0 && f.pos.y === 0) {
@@ -190,7 +194,7 @@ function sendAction(a: Action) {
 // ---------------- AI ----------------
 function runAI() {
   const m = match;
-  if (!m || paused || m.phase !== 'aim' || controlOf(m.turn) !== 'ai' || aiToken === m.turnNo) return;
+  if (!m || paused || m.phase !== 'aim' || controlOf(m.turn) !== 'ai' || aiToken === m.turnNo || scene.introActive()) return;
   aiToken = m.turnNo;
   const token = m.turnNo, seat = m.turn;
   const level = m.seats[seat].aiLevel ?? 'normal';
@@ -214,6 +218,7 @@ function setupInput(el: HTMLElement) {
   new FlickInput(el, {
     pick() {
       unlock();
+      if (scene.introActive()) return null;
       if (!match || paused || match.phase !== 'aim') return null;
       return controlOf(match.turn) === 'me' ? match.turn : null;
     },
@@ -248,6 +253,10 @@ function setupInput(el: HTMLElement) {
     },
     onTap(p: Vec2) {
       unlock();
+      if (scene.introActive()) {
+        scene.skipIntro();
+        return;
+      }
       const m = match;
       if (!m || paused) return;
       if (m.phase === 'resolve' && controlOf(m.actorSeat) === 'me' && m.brake(m.actorSeat)) {
@@ -280,7 +289,7 @@ function logic(t: number) {
   const m = match;
   if (!m || paused || dt <= 0) return dt;
   const before = Math.ceil(m.turnLeft);
-  if (t >= freezeUntil || hidden) m.tick(dt);
+  if ((t >= freezeUntil && !scene.introActive()) || hidden) m.tick(dt);
   if (m.phase === 'aim' && m.timer && Math.ceil(m.turnLeft) !== before && m.turnLeft <= 5 && m.turnLeft > 0 && controlOf(m.turn) === 'me') {
     sfxTick();
     haptics.buzz(6);

@@ -48,6 +48,7 @@ export type MatchEvent =
   | { type: 'timeout'; seat: number }
   | { type: 'round'; result: RoundResult }
   | { type: 'rebuild' } // 物理被整体重建，渲染层需重新创建橡皮
+  | { type: 'roundStart' } // 新的一局开始（用于开场镜头）
   | { type: 'hud' };
 
 export type Authority = 'local' | 'host' | 'client';
@@ -123,6 +124,7 @@ export class Match {
     this.opening = true;
     this.quiet = 0;
     this.emit({ type: 'rebuild' });
+    this.emit({ type: 'roundStart' });
     this.beginTurn(this.starter);
   }
 
