@@ -1,6 +1,6 @@
 // 纯逻辑物理核心：不依赖 DOM，可在浏览器、Worker、Node 中运行
 import RAPIER from '@dimforge/rapier2d-deterministic-compat';
-import { PHYS, SKILL_NUM, TABLE, type EraserDef, type SkillId } from './config';
+import { LIFT, PHYS, SKILL_NUM, TABLE, type EraserDef, type SkillId } from './config';
 
 let rapierReady: Promise<void> | null = null;
 export function initPhysics(): Promise<void> {
@@ -34,6 +34,8 @@ export interface Effects {
   sweepPending?: boolean;
   stickArmed?: boolean;
   brakeArmed?: boolean;
+  /** 失手起飞中：t 已飞帧数，dur 总帧数，h 最高点，turns 翻滚圈数 */
+  air?: { t: number; dur: number; h: number; turns: number; keep: number };
 }
 
 export interface EraserState {
@@ -50,6 +52,9 @@ export interface Snapshot {
   y: number;
   angle: number;
   alive: boolean;
+  /** 起飞高度与翻滚角（仅画面用） */
+  z?: number;
+  flip?: number;
 }
 
 /** 可序列化的完整状态：联机校正、AI 前向模拟都用它 */
@@ -71,6 +76,9 @@ export class Sim {
   frame = 0;
   resolving = false;
   impacts: Impact[] = [];
+  /** 最近一次弹出的起飞程度（0 = 正常） */
+  lastLift = 0;
+  lastLiftKind: 'over' | 'edge' | null = null;
   private resolveFrames = 0;
   private events: RAPIER.EventQueue;
   private colliderOwner = new Map<number, number>();
@@ -112,7 +120,7 @@ export class Sim {
    * 手指弹出。speed 为橡皮正碰时的目标初速；point 为击中点（世界坐标）。
    * 偏心击打时接触点的等效质量更小 → 平移更少、旋转更多。
    */
-  flick(index: number, dir: Vec2, speed: number, point: Vec2, skill?: SkillId, powerMul = 1) {
+  flick(index: number, dir: Vec2, speed: number, point: Vec2, skill?: SkillId, powerMul = 1, over = 0) {
     const e = this.erasers[index];
     if (!e.body || !e.alive) return;
     const def = e.def;
@@ -124,8 +132,41 @@ export class Sim {
     const mEff = 1 / (1 / m + (rCrossN * rCrossN) / (m * iom));
     const maxJ = def.maxImpulse * (e.fx.charged ? SKILL_NUM.chargeBoost : 1) * powerMul;
     e.fx.charged = false;
+    const vmax = Math.min(PHYS.globalMaxSpeed * (maxJ / def.maxImpulse), maxJ / m);
     const J = Math.min(mEff * Math.min(speed, PHYS.globalMaxSpeed * (maxJ / def.maxImpulse)), maxJ);
     e.body.applyImpulseAtPoint({ x: dir.x * J, y: dir.y * J }, point, true);
+
+    // 失手起飞：over = 想要的力度 / 允许的最大力度（由上层给出，含开局限力）；没给就按实际速度算
+    const r = over > 0 ? over : Math.min(speed, vmax) / vmax;
+    const nx = -dir.y, ny = dir.x;
+    let sup = def.w / 2;
+    if (def.shape !== 'ball') {
+      const ang = e.body.rotation(), ca = Math.cos(ang), sa = Math.sin(ang);
+      sup = (def.w / 2) * Math.abs(nx * ca + ny * sa) + (def.h / 2) * Math.abs(-nx * sa + ny * ca);
+    }
+    const latN = Math.abs(rx * nx + ry * ny) / sup;
+    const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
+    const liftOver = r > LIFT.overStart ? clamp01((r - LIFT.overStart) / (LIFT.overFull - LIFT.overStart)) : 0;
+    const liftEdge = latN > LIFT.edgeStart && r > LIFT.edgePower ? clamp01((latN - LIFT.edgeStart) / (1 - LIFT.edgeStart)) * clamp01((r - LIFT.edgePower) / (1 - LIFT.edgePower)) * LIFT.edgeMax : 0;
+    const L = Math.max(liftOver, liftEdge);
+    this.lastLift = 0;
+    this.lastLiftKind = null;
+    if (L >= LIFT.minLift) {
+      this.lastLift = L;
+      this.lastLiftKind = liftOver >= liftEdge ? 'over' : 'edge';
+      const v = e.body.linvel();
+      let vx = v.x * (1 + LIFT.speedBoost * liftOver), vy = v.y * (1 + LIFT.speedBoost * liftOver);
+      if (liftEdge > 0) {
+        // 甩偏了：方向朝施力点的另一侧拐
+        const turn = -Math.sign(rCrossN || 1) * 0.35 * liftEdge;
+        const c2 = Math.cos(turn), s2 = Math.sin(turn);
+        [vx, vy] = [vx * c2 - vy * s2, vx * s2 + vy * c2];
+        e.body.setAngvel(e.body.angvel() * 1.5 + Math.sign(rCrossN || 1) * 6 * liftEdge, true);
+      }
+      e.body.setLinvel({ x: vx, y: vy }, true);
+      e.fx.air = { t: 0, dur: Math.round((LIFT.baseTime + LIFT.extraTime * L) / PHYS.dt), h: 0.3 + LIFT.height * L, turns: 1 + Math.round(L * 2), keep: liftOver >= liftEdge ? 0.9 : 0.55 };
+      e.collider!.setSensor(true);
+    }
 
     switch (skill) {
       case 'brace':
@@ -187,8 +228,23 @@ export class Sim {
   step(): FallInfo[] {
     const falls: FallInfo[] = [];
     const dt = PHYS.dt;
-    for (const e of this.erasers) {
+    const landed: number[] = [];
+    for (let ei = 0; ei < this.erasers.length; ei++) {
+      const e = this.erasers[ei];
       if (!e.body) continue;
+      if (e.fx.air) {
+        // 空中：没有摩擦、不与别人碰撞
+        const air = e.fx.air;
+        if (air.t + 1 >= air.dur) {
+          e.fx.air = undefined;
+          e.collider!.setSensor(false);
+          const v = e.body.linvel();
+          e.body.setLinvel({ x: v.x * air.keep, y: v.y * air.keep }, true);
+          e.body.setAngvel(e.body.angvel() * 0.6, true);
+          landed.push(ei);
+        } else e.fx.air = { ...air, t: air.t + 1 };
+        continue;
+      }
       const def = e.def;
       const mu = def.mu * (e.fx.rooted ? SKILL_NUM.rootGrip : 1);
       const v = e.body.linvel();
@@ -220,6 +276,11 @@ export class Sim {
     }
 
     this.impacts = [];
+    for (const i of landed) {
+      const b = this.erasers[i].body!;
+      const p = b.translation();
+      this.impacts.push({ a: i, b: i, speed: Math.hypot(b.linvel().x, b.linvel().y) * 1.5 + 3, x: p.x, y: p.y });
+    }
     const pre = this.erasers.map((e) => (e.body ? e.body.linvel() : { x: 0, y: 0 }));
     this.world.step(this.events);
     this.events.drainCollisionEvents((h1, h2, started) => {
@@ -238,7 +299,7 @@ export class Sim {
 
     for (let i = 0; i < this.erasers.length; i++) {
       const e = this.erasers[i];
-      if (!e.body) continue;
+      if (!e.body || e.fx.air) continue;
       const p = e.body.translation();
       if (Math.abs(p.x) > TABLE.width / 2 || Math.abs(p.y) > TABLE.height / 2) {
         const v = e.body.linvel();
@@ -318,6 +379,7 @@ export class Sim {
   allResting(): boolean {
     for (const e of this.erasers) {
       if (!e.body) continue;
+      if (e.fx.air) return false;
       const v = e.body.linvel();
       if (Math.hypot(v.x, v.y) > PHYS.restSpeed || Math.abs(e.body.angvel()) > PHYS.restSpin) return false;
     }
@@ -328,6 +390,11 @@ export class Sim {
     const e = this.erasers[i];
     if (!e.body) return { x: e.fall?.pos.x ?? 0, y: e.fall?.pos.y ?? 0, angle: e.fall?.angle ?? 0, alive: false };
     const p = e.body.translation();
+    const air = e.fx.air;
+    if (air) {
+      const u = (air.t + 1) / air.dur;
+      return { x: p.x, y: p.y, angle: e.body.rotation(), alive: true, z: 4 * air.h * u * (1 - u), flip: u * Math.PI * 2 * air.turns };
+    }
     return { x: p.x, y: p.y, angle: e.body.rotation(), alive: true };
   }
 
@@ -372,6 +439,7 @@ export class Sim {
       e.body.setAngvel(st.w, true);
       const wasBraced = e.fx.braced;
       e.fx = { ...st.fx };
+      e.collider!.setSensor(!!e.fx.air);
       if (e.fx.braced !== wasBraced) e.body.setAdditionalMass(e.fx.braced ? e.def.mass * 0.5 : 0, true);
     });
     return killed;
@@ -392,6 +460,9 @@ export class Sim {
         e.alive = false;
       } else {
         sim.erasers[i].fx = { ...st.fx };
+        if (st.fx.air) sim.erasers[i].collider!.setSensor(true);
+        sim.erasers[i].body!.setLinvel({ x: st.vx, y: st.vy }, true);
+        sim.erasers[i].body!.setAngvel(st.w, true);
         if (st.fx.braced) sim.erasers[i].body!.setAdditionalMass(d.mass * 0.5, true);
       }
     });

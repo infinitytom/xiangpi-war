@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { eraserMesh } from './erasers';
 import type { Effects } from '../core/sim';
-import { TABLE, type EraserDef } from '../core/config';
+import { LIFT, TABLE, type EraserDef } from '../core/config';
 import type { FallInfo, Snapshot } from '../core/sim';
 import { deskEdge, deskTop, flickRing, terrazzo } from './textures';
 
@@ -43,6 +43,7 @@ export class GameScene {
   private trailFade = 0;
   // 手感反馈
   private power: THREE.Mesh;
+  private power2: THREE.Mesh; // 第二圈：超过满力，进入就有起飞风险
   private powerTarget = -1;
   private powerFrac = 0;
   private powerHold = 0; // 出手后定格显示实际力度的剩余秒数
@@ -141,6 +142,12 @@ export class GameScene {
     this.power.position.y = 0.006;
     this.power.visible = false;
     this.scene.add(this.power);
+    const pg2 = new THREE.RingGeometry(1.24, 1.44, 120, 1, Math.PI / 2, -Math.PI * 2);
+    this.power2 = new THREE.Mesh(pg2, new THREE.MeshBasicMaterial({ color: '#5a1020', transparent: true, opacity: 0.95, depthWrite: false, side: THREE.DoubleSide }));
+    this.power2.rotation.x = -Math.PI / 2;
+    this.power2.position.y = 0.007;
+    this.power2.visible = false;
+    this.scene.add(this.power2);
 
     // 撞击时飞出的橡皮屑
     const N = 90;
@@ -162,13 +169,13 @@ export class GameScene {
     if (this.powerHold > 0 && seat < 0) return; // 定格中不被清掉
     this.powerHold = 0;
     this.powerTarget = seat;
-    this.powerFrac = Math.max(0, Math.min(1, frac));
+    this.powerFrac = Math.max(0, Math.min(2, frac));
   }
 
   /** 出手后把实际用掉的力度定格显示一会儿 */
   holdPower(seat: number, frac: number, seconds = 0.9) {
     this.powerTarget = seat;
-    this.powerFrac = Math.max(0, Math.min(1, frac));
+    this.powerFrac = Math.max(0, Math.min(2, frac));
     this.powerHold = seconds;
   }
 
@@ -271,8 +278,9 @@ export class GameScene {
   sync(i: number, s: Snapshot) {
     const e = this.erasers[i];
     if (e.fall) return;
-    e.mesh.position.set(s.x, e.def.t / 2, -s.y);
+    e.mesh.position.set(s.x, e.def.t / 2 + (s.z ?? 0), -s.y);
     e.mesh.rotation.set(0, s.angle, 0);
+    if (s.flip) e.mesh.rotateX(s.flip);
     const tl = this.tilts.get(i);
     if (tl) e.mesh.rotateOnWorldAxis(tl.axis, tl.amp * Math.exp(-tl.t * 7) * Math.sin(tl.t * 30));
     e.mark.position.x = s.x;
@@ -418,16 +426,34 @@ export class GameScene {
     if (pt && !pt.fall) {
       const geo = this.power.geometry as THREE.BufferGeometry;
       const total = geo.index!.count;
-      const segs = Math.round(this.powerFrac * 120);
+      const f1 = Math.min(1, this.powerFrac), f2 = Math.max(0, this.powerFrac - 1);
+      const segs = Math.round(f1 * 120);
       geo.setDrawRange(0, Math.min(total, segs * 6));
       this.power.visible = segs > 0;
       this.power.position.x = pt.mesh.position.x;
       this.power.position.z = pt.mesh.position.z;
-      this.power.scale.setScalar(Math.hypot(pt.def.w, pt.def.h) / 2 + 0.32);
+      const sc = Math.hypot(pt.def.w, pt.def.h) / 2 + 0.32;
+      this.power.scale.setScalar(sc);
+      const fade = this.powerHold > 0 ? Math.min(1, this.powerHold * 2) : 1;
       const m = this.power.material as THREE.MeshBasicMaterial;
-      m.opacity = this.powerHold > 0 ? Math.min(0.9, this.powerHold * 2) : 0.9;
-      m.color.setHSL(0.33 * (1 - this.powerFrac), 0.65, this.powerFrac >= 0.99 ? 0.42 + Math.sin(time * 30) * 0.08 : 0.42);
-    } else this.power.visible = false;
+      m.opacity = 0.9 * fade;
+      m.color.setHSL(0.33 * (1 - f1), 0.65, f1 >= 0.99 && f2 === 0 ? 0.42 + Math.sin(time * 30) * 0.08 : 0.42);
+      // 第二圈：超出满力的部分，越过起飞线后剧烈闪烁
+      const segs2 = Math.round(f2 * 120);
+      const g2 = this.power2.geometry as THREE.BufferGeometry;
+      g2.setDrawRange(0, Math.min(g2.index!.count, segs2 * 6));
+      this.power2.visible = segs2 > 0;
+      this.power2.position.x = pt.mesh.position.x;
+      this.power2.position.z = pt.mesh.position.z;
+      this.power2.scale.setScalar(sc);
+      const m2 = this.power2.material as THREE.MeshBasicMaterial;
+      const danger = this.powerFrac > LIFT.overStart;
+      m2.opacity = 0.95 * fade;
+      m2.color.setHSL(0.97, 0.75, danger ? 0.3 + Math.abs(Math.sin(time * 18)) * 0.25 : 0.28);
+    } else {
+      this.power.visible = false;
+      this.power2.visible = false;
+    }
     // 橡皮屑
     for (let i = 0; i < this.crumbState.length; i++) {
       const c = this.crumbState[i];

@@ -49,6 +49,7 @@ export type MatchEvent =
   | { type: 'round'; result: RoundResult }
   | { type: 'rebuild' } // 物理被整体重建，渲染层需重新创建橡皮
   | { type: 'roundStart' } // 新的一局开始（用于开场镜头）
+  | { type: 'lift'; seat: number; amount: number; kind: 'over' | 'edge' } // 失手起飞
   | { type: 'hud' };
 
 export type Authority = 'local' | 'host' | 'client';
@@ -205,15 +206,18 @@ export class Match {
       skill = sk.id;
     }
     this.armed = false;
-    const speed = Math.min(f.speed, this.maxSpeedOf(seat));
+    const vmax = this.maxSpeedOf(seat);
+    const speed = Math.min(f.speed, vmax);
+    const over = f.speed / vmax;
     const mul = this.powerMul;
     this.opening = false;
-    this.sim.flick(seat, f.dir, speed, f.point, skill ?? undefined, mul);
+    this.sim.flick(seat, f.dir, speed, f.point, skill ?? undefined, mul, over);
     this.quiet++;
     this.actor = seat;
     this.phase = 'resolve';
     this.settle = 0;
     this.emit({ type: 'flick', seat, speed: f.speed, skill });
+    if (this.sim.lastLift > 0) this.emit({ type: 'lift', seat, amount: this.sim.lastLift, kind: this.sim.lastLiftKind ?? 'over' });
     this.emit({ type: 'hud' });
   }
 

@@ -44,6 +44,20 @@ export const FLICK = {
   minFingerSpeed: 0.4,
 };
 
+/** 失手起飞：用力过猛（力度圈转进第二圈）或甩在边缘，橡皮会飞起来，可能直接飞出桌面 */
+export const LIFT = {
+  overStart: 1.15, // 力度超过满力的 15% 开始起飞
+  overFull: 1.8, // 到这里起飞程度拉满
+  edgeStart: 0.8, // 施力点偏离中线超过半宽的 80% 算「甩到边上」
+  edgePower: 0.7, // 甩到边上且力度超过七成才会起飞
+  edgeMax: 0.7, // 甩边最多起飞到这个程度
+  speedBoost: 0.35, // 用力过猛时多出来的速度
+  baseTime: 0.18, // 滞空时间（秒）= baseTime + extraTime × 起飞程度
+  extraTime: 0.5,
+  height: 1.6, // 最大飞行高度（仅画面）
+  minLift: 0.05,
+};
+
 // ---------- 属性分 1–5 → 物理参数 ----------
 const MASS = [0.6, 0.8, 1.0, 1.3, 1.7];
 const SIZE = [0.72, 0.86, 1.0, 1.14, 1.3]; // 面积的线性缩放

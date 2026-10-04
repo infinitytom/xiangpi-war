@@ -123,6 +123,12 @@ function onMatchEvent(e: MatchEvent) {
         if (!er.alive) scene.erasers[i].mesh.visible = false, (scene.erasers[i].mark.visible = false);
       });
       break;
+    case 'lift': {
+      const who = controlOf(e.seat) === 'me' ? '' : m.seats[e.seat].name + ' ';
+      toast(e.kind === 'over' ? `${who}用力过猛，起飞了！` : `${who}甩到边上，翻飞了！`, 1500);
+      haptics.buzz([20, 40, 60]);
+      break;
+    }
     case 'roundStart':
       // 开场镜头：第一局完整一点，之后的局快一些；点一下屏幕可跳过
       scene.intro(m.round <= 1 ? 1.8 : 1.1);
@@ -247,7 +253,7 @@ function setupInput(el: HTMLElement) {
       const speed = fingerToLaunch(r.fingerSpeed, settings.sensitivity);
       const skill = m.armed;
       const f = { dir: r.dir, speed, point: r.point };
-      scene.holdPower(i, Math.min(1, speed / m.maxSpeedOf(i)));
+      scene.holdPower(i, Math.min(2, speed / m.maxSpeedOf(i)));
       m.flick(i, f, skill);
       sendAction({ kind: 'flick', seat: i, f, skill });
     },
